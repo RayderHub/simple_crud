@@ -3,12 +3,16 @@ services:
     image: public.ecr.aws/zinclabs/openobserve:latest
     container_name: openobserve
     restart: unless-stopped
+    mem_limit: 384m
     ports:
       - "5080:5080"
     environment:
       - ZO_ROOT_USER_EMAIL=${OPENOBSERVE_USER:-admin@uteq.edu.mx}
       - ZO_ROOT_USER_PASSWORD=${OPENOBSERVE_PASSWORD:-OpenObserve123!}
       - ZO_DATA_DIR=/data
+      - ZO_MEMORY_CACHE_MAX_SIZE=64
+      - ZO_COMPACT_ENABLED=false
+      - ZO_TELEMETRY=false
     volumes:
       - ./o2_data:/data
 
@@ -16,6 +20,7 @@ services:
     build: .
     container_name: simple_crud_app
     restart: unless-stopped
+    mem_limit: 192m
     depends_on:
       - openobserve
     ports:
@@ -33,6 +38,7 @@ services:
     build: .
     container_name: ec2_infra_monitor
     restart: unless-stopped
+    mem_limit: 96m
     depends_on:
       - openobserve
     pid: host
@@ -43,5 +49,5 @@ services:
       - OPENOBSERVE_ORG=${OPENOBSERVE_ORG:-default}
       - OPENOBSERVE_USER=${OPENOBSERVE_USER:-admin@uteq.edu.mx}
       - OPENOBSERVE_PASSWORD=${OPENOBSERVE_PASSWORD:-OpenObserve123!}
-      - METRICS_INTERVAL_SECONDS=5
+      - METRICS_INTERVAL_SECONDS=10
       - EC2_INSTANCE_NAME=aws-ec2-simple-crud
