@@ -49,6 +49,9 @@ jobs:
         id: run_tests
         env:
           APP_URL: http://127.0.0.1:5000
+          OPENOBSERVE_URL: ${{ secrets.OPENOBSERVE_URL }}
+          OPENOBSERVE_USER: ${{ secrets.OPENOBSERVE_USER }}
+          OPENOBSERVE_PASSWORD: ${{ secrets.OPENOBSERVE_PASSWORD }}
         run: |
           pytest tests/test_e2e_crud.py -v --html=reporte_tests.html --self-contained-html
 
