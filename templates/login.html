@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Iniciar Sesión · Gestión de Usuarios{% endblock %}
+
+{% block content %}
+<section class="auth-wrapper">
+  <div class="card auth-card">
+    <div class="auth-header">
+      <div class="auth-badge">Supabase + Flask</div>
+      <h1>Iniciar Sesión</h1>
+      <p>Ingresa tus credenciales para administrar los usuarios del sistema.</p>
+    </div>
+
+    {% if not configured %}
+    <div class="alert alert-warning" data-testid="supabase-warning">
+      <strong>Configuración pendiente:</strong> Agrega <code>SUPABASE_URL</code> y <code>SUPABASE_KEY</code> en el archivo <code>.env</code> y ejecuta <code>schema_supabase.sql</code> en Supabase.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('login') }}" class="form-stack" data-testid="login-form">
+      <div class="form-group">
+        <label for="email">Correo electrónico</label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          value="{{ email }}"
+          placeholder="admin@uteq.edu.mx"
+          required
+          autofocus
+          data-testid="input-email"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="password">Contraseña</label>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="••••••••"
+          required
+          data-testid="input-password"
+        />
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full" data-testid="btn-login">
+        Entrar al sistema
+      </button>
+    </form>
+
+    <div class="auth-hint">
+      <strong>Usuario inicial de prueba:</strong><br />
+      Correo: <code>admin@uteq.edu.mx</code> · Contraseña: <code>admin123</code>
+    </div>
+  </div>
+</section>
+{% endblock %}

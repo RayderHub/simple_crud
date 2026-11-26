@@ -1,0 +1,188 @@
+name: CI/CD Pipeline - Playwright + OpenObserve + AWS EC2
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 1. Pruebas Integrales E2E (Pytest + Playwright)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar código del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias de aplicación y pruebas
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-playwright pytest-html
+          playwright install chromium
+
+      - name: Iniciar aplicación Flask en segundo plano
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FLASK_SECRET_KEY: ${{ secrets.FLASK_SECRET_KEY || 'ci-secret-key' }}
+        run: |
+          nohup python app.py > flask_ci.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:5000/health; then
+              echo "Servidor Flask listo!"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat flask_ci.log
+          exit 1
+
+      - name: Ejecutar suite de pruebas E2E (Backend + Frontend)
+        id: run_tests
+        env:
+          APP_URL: http://127.0.0.1:5000
+        run: |
+          pytest tests/test_e2e_crud.py -v --html=reporte_tests.html --self-contained-html
+
+      - name: Subir reporte HTML de pruebas como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-playwright-ci
+          path: reporte_tests.html
+
+      - name: Registrar resultado de pruebas en OpenObserve (RF-03)
+        if: always()
+        env:
+          OO_URL: ${{ secrets.OPENOBSERVE_URL }}
+          OO_USER: ${{ secrets.OPENOBSERVE_USER }}
+          OO_PASS: ${{ secrets.OPENOBSERVE_PASSWORD }}
+          TEST_OUTCOME: ${{ steps.run_tests.outcome }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$OO_URL" ] || [ -z "$OO_USER" ] || [ -z "$OO_PASS" ]; then
+            echo "Secrets de OpenObserve no configurados aún; omitiendo envío."
+            exit 0
+          fi
+          export STATUS="SUCCESS"
+          export DEPLOY_BLOCKED="false"
+          if [ "$TEST_OUTCOME" != "success" ]; then
+            export STATUS="FAILURE"
+            export DEPLOY_BLOCKED="true"
+          fi
+          python - << 'EOF'
+          import os, json, requests
+          from datetime import datetime, timezone
+
+          url = os.environ["OO_URL"].rstrip("/") + "/api/default/cicd_pipeline/_json"
+          payload = [{
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "stage": "tests",
+              "status": os.environ["STATUS"],
+              "deploy_blocked": os.environ["DEPLOY_BLOCKED"] == "true",
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "commit_short": os.environ["GITHUB_SHA"][:7],
+              "commit_message": os.environ.get("COMMIT_MSG", ""),
+              "branch": os.environ["GITHUB_REF_NAME"],
+              "actor": os.environ["GITHUB_ACTOR"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "message": f"Pruebas Playwright: {os.environ['STATUS']} en commit {os.environ['GITHUB_SHA'][:7]}"
+          }]
+          resp = requests.post(
+              url,
+              json=payload,
+              auth=(os.environ["OO_USER"], os.environ["OO_PASS"]),
+              timeout=10
+          )
+          print("OpenObserve CI log status:", resp.status_code, resp.text)
+          EOF
+
+  deploy:
+    name: 2. Despliegue Condicionado en AWS EC2 (Solo si pasan las pruebas)
+    needs: test
+    if: success() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Desplegar contenedores vía SSH en AWS EC2 (RF-02)
+        id: ssh_deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            APP_DIR="$HOME/simple_crud"
+            if [ ! -d "$APP_DIR" ]; then
+              git clone https://github.com/RayderHub/simple_crud.git "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            cat << 'ENVEOF' > .env
+            SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+            SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
+            FLASK_SECRET_KEY=${{ secrets.FLASK_SECRET_KEY }}
+            OPENOBSERVE_URL=http://openobserve:5080
+            OPENOBSERVE_ORG=default
+            OPENOBSERVE_USER=${{ secrets.OPENOBSERVE_USER }}
+            OPENOBSERVE_PASSWORD=${{ secrets.OPENOBSERVE_PASSWORD }}
+            OTEL_SERVICE_NAME=simple-crud-flask
+            ENVEOF
+
+            docker compose up -d --build
+            sleep 5
+            curl -sf http://127.0.0.1:5000/health
+
+      - name: Registrar evento de despliegue en OpenObserve (RF-03)
+        if: always()
+        env:
+          OO_URL: ${{ secrets.OPENOBSERVE_URL }}
+          OO_USER: ${{ secrets.OPENOBSERVE_USER }}
+          OO_PASS: ${{ secrets.OPENOBSERVE_PASSWORD }}
+          DEPLOY_OUTCOME: ${{ steps.ssh_deploy.outcome }}
+        run: |
+          if [ -z "$OO_URL" ] || [ -z "$OO_USER" ] || [ -z "$OO_PASS" ]; then
+            echo "Secrets de OpenObserve no configurados aún."
+            exit 0
+          fi
+          export STATUS="DEPLOY_SUCCESS"
+          if [ "$DEPLOY_OUTCOME" != "success" ]; then
+            export STATUS="DEPLOY_FAILURE"
+          fi
+          python - << 'EOF'
+          import os, requests
+          from datetime import datetime, timezone
+
+          url = os.environ["OO_URL"].rstrip("/") + "/api/default/cicd_pipeline/_json"
+          payload = [{
+              "timestamp": datetime.now(timezone.utc).isoformat(),
+              "stage": "deploy_ec2",
+              "status": os.environ["STATUS"],
+              "commit_sha": os.environ["GITHUB_SHA"],
+              "commit_short": os.environ["GITHUB_SHA"][:7],
+              "branch": os.environ["GITHUB_REF_NAME"],
+              "actor": os.environ["GITHUB_ACTOR"],
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "message": f"Despliegue en AWS EC2: {os.environ['STATUS']} (commit {os.environ['GITHUB_SHA'][:7]})"
+          }]
+          resp = requests.post(
+              url,
+              json=payload,
+              auth=(os.environ["OO_USER"], os.environ["OO_PASS"]),
+              timeout=10
+          )
+          print("OpenObserve deploy log status:", resp.status_code, resp.text)
+          EOF

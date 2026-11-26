@@ -1,0 +1,47 @@
+services:
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    container_name: openobserve
+    restart: unless-stopped
+    ports:
+      - "5080:5080"
+    environment:
+      - ZO_ROOT_USER_EMAIL=${OPENOBSERVE_USER:-admin@uteq.edu.mx}
+      - ZO_ROOT_USER_PASSWORD=${OPENOBSERVE_PASSWORD:-OpenObserve123!}
+      - ZO_DATA_DIR=/data
+    volumes:
+      - ./o2_data:/data
+
+  app:
+    build: .
+    container_name: simple_crud_app
+    restart: unless-stopped
+    depends_on:
+      - openobserve
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - OPENOBSERVE_URL=http://openobserve:5080
+      - OPENOBSERVE_ORG=${OPENOBSERVE_ORG:-default}
+      - OPENOBSERVE_USER=${OPENOBSERVE_USER:-admin@uteq.edu.mx}
+      - OPENOBSERVE_PASSWORD=${OPENOBSERVE_PASSWORD:-OpenObserve123!}
+      - OTEL_SERVICE_NAME=simple-crud-flask
+
+  infra_monitor:
+    build: .
+    container_name: ec2_infra_monitor
+    restart: unless-stopped
+    depends_on:
+      - openobserve
+    pid: host
+    network_mode: host
+    command: ["python", "infra_monitor.py"]
+    environment:
+      - OPENOBSERVE_URL=http://127.0.0.1:5080
+      - OPENOBSERVE_ORG=${OPENOBSERVE_ORG:-default}
+      - OPENOBSERVE_USER=${OPENOBSERVE_USER:-admin@uteq.edu.mx}
+      - OPENOBSERVE_PASSWORD=${OPENOBSERVE_PASSWORD:-OpenObserve123!}
+      - METRICS_INTERVAL_SECONDS=5
+      - EC2_INSTANCE_NAME=aws-ec2-simple-crud

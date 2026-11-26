@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}CRUD de Usuarios · Panel{% endblock %}
+
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Administración de Usuarios</h1>
+    <p>Crea, consulta, edita y elimina registros almacenados en Supabase.</p>
+  </div>
+  <button type="button" class="btn btn-primary" onclick="openCreateModal()" data-testid="btn-nuevo-usuario">
+    + Nuevo Usuario
+  </button>
+</section>
+
+<section class="kpi-grid">
+  <div class="card kpi-card">
+    <span class="kpi-label">Total de Usuarios</span>
+    <strong class="kpi-value" data-testid="kpi-total">{{ stats.total }}</strong>
+  </div>
+  <div class="card kpi-card">
+    <span class="kpi-label">Usuarios Activos</span>
+    <strong class="kpi-value text-success" data-testid="kpi-activos">{{ stats.activos }}</strong>
+  </div>
+  <div class="card kpi-card">
+    <span class="kpi-label">Administradores</span>
+    <strong class="kpi-value text-accent" data-testid="kpi-admins">{{ stats.admins }}</strong>
+  </div>
+</section>
+
+<section class="card table-card">
+  <form method="GET" action="{{ url_for('usuarios') }}" class="search-bar" data-testid="search-form">
+    <input
+      type="text"
+      name="q"
+      value="{{ search }}"
+      placeholder="Buscar por nombre, correo o rol..."
+      data-testid="input-buscar"
+    />
+    <button type="submit" class="btn btn-secondary" data-testid="btn-buscar">Buscar</button>
+    {% if search %}
+      <a href="{{ url_for('usuarios') }}" class="btn btn-outline" data-testid="btn-limpiar">Limpiar</a>
+    {% endif %}
+  </form>
+
+  <div class="table-responsive">
+    <table class="data-table" data-testid="tabla-usuarios">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Nombre</th>
+          <th>Correo</th>
+          <th>Rol</th>
+          <th>Estado</th>
+          <th class="text-right">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in usuarios %}
+        <tr data-testid="fila-usuario-{{ u.id }}">
+          <td>#{{ u.id }}</td>
+          <td><strong>{{ u.nombre }}</strong></td>
+          <td>{{ u.email }}</td>
+          <td><span class="badge badge-role">{{ u.rol }}</span></td>
+          <td>
+            {% if u.activo %}
+              <span class="badge badge-active">Activo</span>
+            {% else %}
+              <span class="badge badge-inactive">Inactivo</span>
+            {% endif %}
+          </td>
+          <td class="actions-cell">
+            <button
+              type="button"
+              class="btn btn-sm btn-secondary"
+              data-testid="btn-editar-{{ u.id }}"
+              onclick='openEditModal({{ u | tojson }})'
+            >
+              Editar
+            </button>
+            <form
+              method="POST"
+              action="{{ url_for('eliminar_usuario', user_id=u.id) }}"
+              class="inline-form"
+              onsubmit="return confirm('¿Seguro que deseas eliminar a {{ u.nombre }}?');"
+            >
+              <button
+                type="submit"
+                class="btn btn-sm btn-danger"
+                data-testid="btn-eliminar-{{ u.id }}"
+                {% if session.get('user_id') == u.id %}disabled title="No puedes eliminar tu propia cuenta"{% endif %}
+              >
+                Eliminar
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="empty-state">No se encontraron usuarios registrados.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Modal Crear Usuario -->
+<div id="createModal" class="modal-backdrop hidden" data-testid="modal-crear">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Nuevo Usuario</h2>
+      <button type="button" class="close-btn" onclick="closeModals()">&times;</button>
+    </div>
+    <form method="POST" action="{{ url_for('crear_usuario') }}" class="form-stack">
+      <div class="form-group">
+        <label for="create-nombre">Nombre completo</label>
+        <input type="text" id="create-nombre" name="nombre" required data-testid="create-nombre" />
+      </div>
+      <div class="form-group">
+        <label for="create-email">Correo electrónico</label>
+        <input type="email" id="create-email" name="email" required data-testid="create-email" />
+      </div>
+      <div class="form-group">
+        <label for="create-password">Contraseña (mínimo 6 caracteres)</label>
+        <input type="password" id="create-password" name="password" minlength="6" required data-testid="create-password" />
+      </div>
+      <div class="form-group">
+        <label for="create-rol">Rol</label>
+        <select id="create-rol" name="rol" data-testid="create-rol">
+          {% for rol in roles %}
+            <option value="{{ rol }}">{{ rol }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" name="activo" checked data-testid="create-activo" />
+        <span>Usuario activo</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModals()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" data-testid="btn-guardar-crear">Guardar Usuario</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal Editar Usuario -->
+<div id="editModal" class="modal-backdrop hidden" data-testid="modal-editar">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Editar Usuario</h2>
+      <button type="button" class="close-btn" onclick="closeModals()">&times;</button>
+    </div>
+    <form id="editForm" method="POST" action="" class="form-stack">
+      <div class="form-group">
+        <label for="edit-nombre">Nombre completo</label>
+        <input type="text" id="edit-nombre" name="nombre" required data-testid="edit-nombre" />
+      </div>
+      <div class="form-group">
+        <label for="edit-email">Correo electrónico</label>
+        <input type="email" id="edit-email" name="email" required data-testid="edit-email" />
+      </div>
+      <div class="form-group">
+        <label for="edit-password">Nueva contraseña (opcional)</label>
+        <input type="password" id="edit-password" name="password" minlength="6" placeholder="Dejar vacío para conservar actual" data-testid="edit-password" />
+      </div>
+      <div class="form-group">
+        <label for="edit-rol">Rol</label>
+        <select id="edit-rol" name="rol" data-testid="edit-rol">
+          {% for rol in roles %}
+            <option value="{{ rol }}">{{ rol }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="edit-activo" name="activo" data-testid="edit-activo" />
+        <span>Usuario activo</span>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModals()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" data-testid="btn-guardar-editar">Guardar Cambios</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function openCreateModal() {
+    document.getElementById("createModal").classList.remove("hidden");
+  }
+
+  function openEditModal(user) {
+    const form = document.getElementById("editForm");
+    form.action = `/usuarios/editar/${user.id}`;
+    document.getElementById("edit-nombre").value = user.nombre || "";
+    document.getElementById("edit-email").value = user.email || "";
+    document.getElementById("edit-password").value = "";
+    document.getElementById("edit-rol").value = user.rol || "Usuario";
+    document.getElementById("edit-activo").checked = Boolean(user.activo);
+    document.getElementById("editModal").classList.remove("hidden");
+  }
+
+  function closeModals() {
+    document.getElementById("createModal").classList.add("hidden");
+    document.getElementById("editModal").classList.add("hidden");
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeModals();
+  });
+</script>
+{% endblock %}
