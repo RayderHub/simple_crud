@@ -141,8 +141,11 @@ jobs:
             OTEL_SERVICE_NAME=simple-crud-flask
             ENVEOF
 
+            docker builder prune -af || true
+            docker image prune -f || true
             docker compose up -d --build
-            sleep 5
+            docker image prune -f || true
+            sleep 6
             curl -sf http://127.0.0.1:5000/health
 
       - name: Registrar evento de despliegue en OpenObserve (RF-03)
