@@ -25,6 +25,7 @@ services:
     depends_on:
       - openobserve
     ports:
+      - "80:5000"
       - "5000:5000"
     env_file:
       - .env
