@@ -1,0 +1,11 @@
+.git/
+.github/
+o2_data/
+evidencias_reporte/
+tests_masivas/
+__pycache__/
+.pytest_cache/
+*.docx
+*.pdf
+*.png
+.env
